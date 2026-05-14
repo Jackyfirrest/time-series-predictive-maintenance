@@ -26,11 +26,13 @@ Predictive maintenance is a natural time-series problem because engine failure r
 \section{Data}
 The analysis uses the NASA C-MAPSS FD001 subset. Because the downstream maintenance experiment requires complete run-to-failure trajectories, engine units from the training file are split into train, validation, and test partitions. The supervised label at each cycle is whether failure occurs within the next thirty cycles.
 
+The repository also includes the official truncated C-MAPSS test files and their associated RUL labels. Those files are appropriate for prediction-only benchmarking, but they are not used as the primary evaluation split here because the maintenance-policy layer requires full trajectories that can be rolled forward to failure.
+
 \begin{table}[H]
 \centering
 \caption{Summary of the FD001 engine-unit splits used in the analysis.}
 \label{tab:data-summary}
-\resizebox{\textwidth}{!}{%
+\small
 \begin{tabular}{lrrrrr}
 \toprule
 split & n\_rows & n\_machines & mean\_failure\_time & mean\_path\_length & positive\_rate\_h30 \\
@@ -39,11 +41,13 @@ train & 14520 & 70 & 207.4286 & 207.4286 & 0.1494 \\
 validation & 3001 & 15 & 200.0667 & 200.0667 & 0.1549 \\
 test & 3110 & 15 & 207.3333 & 207.3333 & 0.1495 \\
 \bottomrule
-\end{tabular}}
+\end{tabular}
 \end{table}
 
 \section{Methods}
 Three predictive models are compared. The baseline GLM uses only current-cycle operating settings and sensor readings from sensor\_7, sensor\_11, sensor\_12, sensor\_15, sensor\_20, sensor\_21. The advanced GLM adds rolling means, rolling standard deviations, slopes, and Holt summaries. The nonlinear time-series forest extends this feature set with lags, first and second differences, exponentially weighted averages, and short-run versus long-run sensor contrasts.
+
+These are appropriate time-series models for the project goal because the task is supervised near-failure event prediction from multivariate degradation streams rather than one-step-ahead forecasting of a single stationary series. In that setting, engineered temporal summaries and nonlinear interactions are a natural way to preserve trend, persistence, and local acceleration information while keeping the workflow interpretable and reproducible.
 
 For the nonlinear model, a small validation-based hyperparameter sweep over tree depth, leaf size, feature subsampling, and number of trees is used to improve out-of-sample performance without shifting the project toward large-scale automated search.
 
@@ -54,7 +58,7 @@ To connect prediction with decision-making, the project compares reactive mainte
 \centering
 \caption{Predictive performance on held-out FD001 engine units.}
 \label{tab:risk-metrics}
-\resizebox{\textwidth}{!}{%
+\small
 \begin{tabular}{lrrrr}
 \toprule
 model & auc & pr\_auc & brier & log\_loss \\
@@ -63,7 +67,7 @@ nonlinear\_ts\_forest & 0.9962 & 0.9797 & 0.0193 & 0.0635 \\
 advanced\_glm & 0.9936 & 0.9680 & 0.0227 & 0.0739 \\
 baseline\_glm & 0.9808 & 0.9178 & 0.0371 & 0.1234 \\
 \bottomrule
-\end{tabular}}
+\end{tabular}
 \end{table}
 The best predictive model is \texttt{nonlinear\_ts\_forest}. Because the main comparison is snapshot-only versus temporal-context models, this result supports the claim that explicit time-series information improves short-horizon failure prediction.
 Grouped bootstrap confidence intervals by engine unit are additionally saved in \texttt{outputs/risk\_model\_metrics\_with\_ci.csv}.
@@ -72,7 +76,7 @@ Grouped bootstrap confidence intervals by engine unit are additionally saved in 
 \centering
 \caption{Validation results for the nonlinear time-series forest hyperparameter sweep.}
 \label{tab:tree-tuning}
-\resizebox{\textwidth}{!}{%
+\footnotesize
 \begin{tabular}{lrrrrrrrr}
 \toprule
 candidate & n\_estimators & max\_depth & min\_samples\_leaf & max\_features & auc & pr\_auc & brier & log\_loss \\
@@ -83,14 +87,14 @@ candidate & n\_estimators & max\_depth & min\_samples\_leaf & max\_features & au
 1 & 180 & 8 & 10 & sqrt & 0.9936 & 0.9697 & 0.0237 & 0.0804 \\
 2 & 240 & 8 & 8 & sqrt & 0.9935 & 0.9695 & 0.0237 & 0.0803 \\
 \bottomrule
-\end{tabular}}
+\end{tabular}
 \end{table}
 
 \begin{table}[H]
 \centering
 \caption{Top ten feature importances for the nonlinear time-series forest.}
 \label{tab:feature-importance}
-\resizebox{\textwidth}{!}{%
+\small
 \begin{tabular}{lr}
 \toprule
 feature & importance \\
@@ -106,7 +110,7 @@ sensor\_15\_mean\_15 & 0.0199 \\
 sensor\_12\_slope\_30 & 0.0186 \\
 sensor\_15\_ewm\_04 & 0.0147 \\
 \bottomrule
-\end{tabular}}
+\end{tabular}
 \end{table}
 
 \begin{figure}[H]
@@ -130,7 +134,7 @@ To validate the time-series workflow, the project includes augmented Dickey-Full
 \centering
 \caption{ADF diagnostics on first-differenced representative sensor channels.}
 \label{tab:stationarity}
-\resizebox{\textwidth}{!}{%
+\small
 \begin{tabular}{lrrr}
 \toprule
 series & adf\_stat & p\_value & crit\_5pct \\
@@ -139,7 +143,7 @@ sensor\_7\_first\_difference & -40.8928 & 0.0000 & -2.8617 \\
 sensor\_12\_first\_difference & -48.5081 & 0.0000 & -2.8617 \\
 sensor\_21\_first\_difference & -20.7355 & 0.0000 & -2.8617 \\
 \bottomrule
-\end{tabular}}
+\end{tabular}
 \end{table}
 
 \begin{figure}[H]
@@ -157,7 +161,7 @@ Policies are evaluated in a continuing-operation environment that repeatedly sam
 \centering
 \caption{Average cost and event counts by maintenance policy.}
 \label{tab:policy-results}
-\resizebox{\textwidth}{!}{%
+\small
 \begin{tabular}{lrrrrr}
 \toprule
 policy & avg\_reward & avg\_cost & std\_cost & avg\_replacements & avg\_failures \\
@@ -168,7 +172,7 @@ q\_learning & -1210.9286 & 1210.9286 & 103.4377 & 22.3571 & 10.5000 \\
 reactive & -1784.6429 & 1784.6429 & 81.7108 & 18.7857 & 18.7857 \\
 dqn & -1784.6429 & 1784.6429 & 73.3987 & 18.7857 & 18.7857 \\
 \bottomrule
-\end{tabular}}
+\end{tabular}
 \end{table}
 
 The tuned risk-threshold rule uses a threshold of 0.30. It achieves the lowest average cost in this experiment, which reinforces the practical story of the project: once the risk estimate is informative, a simple decision rule can be highly effective.
@@ -194,7 +198,7 @@ To assess whether the central forecasting result depends too strongly on the sim
 \centering
 \caption{Predictive robustness across the four standard C-MAPSS subsets.}
 \label{tab:robustness}
-\resizebox{\textwidth}{!}{%
+\footnotesize
 \begin{tabular}{lrrrrr}
 \toprule
 subset & model & auc & pr\_auc & brier & log\_loss \\
@@ -212,7 +216,7 @@ FD004 & baseline\_glm & 0.9161 & 0.7321 & 0.0503 & 0.1868 \\
 FD004 & advanced\_glm & 0.9799 & 0.8566 & 0.0370 & 0.1185 \\
 FD004 & nonlinear\_ts\_forest & 0.9489 & 0.7213 & 0.0611 & 0.2194 \\
 \bottomrule
-\end{tabular}}
+\end{tabular}
 \end{table}
 
 \begin{figure}[H]

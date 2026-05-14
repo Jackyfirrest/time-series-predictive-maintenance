@@ -278,7 +278,7 @@ From `outputs/risk_model_metrics.csv`:
 
 | Model | AUC | Brier | Log Loss |
 |---|---:|---:|---:|
-| nonlinear_ts_forest | 0.9949 | 0.0221 | 0.0738 |
+| nonlinear_ts_forest | 0.9962 | 0.0193 | 0.0635 |
 | advanced_glm | 0.9936 | 0.0227 | 0.0739 |
 | baseline_glm | 0.9808 | 0.0371 | 0.1234 |
 
@@ -332,7 +332,7 @@ From `outputs/risk_model_metrics_with_ci.csv`, cite the grouped bootstrap confid
 
 - validation-based threshold sweep
 - objective: minimize expected maintenance cost
-- selected threshold: `0.25`
+- selected threshold: `0.30`
 
 ### Figure
 
@@ -340,7 +340,7 @@ From `outputs/risk_model_metrics_with_ci.csv`, cite the grouped bootstrap confid
 
 ### Speaker script
 
-"To make the policy comparison transparent, I tuned the risk-threshold rule on the validation split by sweeping candidate thresholds and computing the corresponding expected cost. The selected threshold is 0.25, which minimizes validation cost. This makes the final maintenance-policy comparison more principled than choosing a threshold by hand."
+"To make the policy comparison transparent, I tuned the risk-threshold rule on the validation split by sweeping candidate thresholds and computing the corresponding expected cost. The selected threshold is 0.30, which minimizes validation cost. This makes the final maintenance-policy comparison more principled than choosing a threshold by hand."
 
 ---
 
@@ -356,10 +356,10 @@ From `outputs/policy_summary.csv`:
 
 | Policy | Average Cost | Average Replacements | Average Failures |
 |---|---:|---:|---:|
-| risk_threshold_0.25 | 417.9 | 23.2 | 0.0 |
+| risk_threshold_0.30 | 414.0 | 23.0 | 0.0 |
 | age_threshold_196 | 1108.2 | 20.9 | 9.5 |
+| q_learning | 1210.9 | 22.4 | 10.5 |
 | reactive | 1784.6 | 18.8 | 18.8 |
-| q_learning | 1784.6 | 18.8 | 18.8 |
 | dqn | 1784.6 | 18.8 | 18.8 |
 
 ### Figure

@@ -32,6 +32,8 @@ The repository uses the `NASA Turbofan Engine Degradation Simulation Dataset (C-
 
 For this project, engine units from the FD001 training trajectories are split by `machine_id` into train, validation, and test subsets. This design keeps the evaluation fully reproducible and preserves complete run-to-failure trajectories for the downstream maintenance-policy experiment.
 
+The official C-MAPSS test files are also included in the repository, but they are truncated sequences paired with separate RUL labels. Those files are appropriate for prediction-only benchmarking. This project instead builds engine-level train/validation/test splits from the complete training trajectories because the policy layer requires full run-to-failure paths.
+
 At each cycle, the supervised target is whether failure occurs within the next `30` cycles.
 
 ## Data access instructions

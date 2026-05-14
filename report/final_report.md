@@ -14,6 +14,8 @@ This project uses the NASA C-MAPSS turbofan engine degradation simulation datase
 
 To keep policy evaluation well defined, the analysis uses complete run-to-failure trajectories from the FD001 training file and splits engine units into train, validation, and test subsets. The supervised label at each timestamp is whether failure occurs within the next 30 cycles.
 
+The repository also includes the official truncated C-MAPSS test files and their associated RUL labels. Those files are appropriate for prediction-only benchmarking, but they are not used as the primary evaluation split here because the maintenance-policy layer requires full trajectories that can be rolled forward to failure.
+
 The table below summarizes the resulting dataset across splits.
 
 | split | n_rows | n_machines | mean_failure_time | mean_path_length | positive_rate_h30 |
@@ -25,6 +27,8 @@ The table below summarizes the resulting dataset across splits.
 ## 3. Methods
 
 The baseline model uses only current-cycle operating settings and sensor readings from sensor_7, sensor_11, sensor_12, sensor_15, sensor_20, sensor_21. The advanced GLM adds rolling means, rolling standard deviations, slopes, and Holt smoothing summaries. The nonlinear model further adds multi-scale lags, differences, exponentially weighted averages, and short-run versus long-run sensor contrasts. This design keeps the main comparison conceptually clean: current-cycle snapshot information versus explicit temporal context.
+
+These are appropriate time-series models for the project goal because the task is supervised near-failure event prediction from multivariate degradation streams, rather than classic one-step-ahead forecasting of a single stationary series. In that setting, engineered temporal summaries and nonlinear interactions are a natural way to preserve trend, persistence, and local acceleration information while still keeping the workflow interpretable and reproducible.
 
 For the nonlinear model, I run a small validation-based RandomForest hyperparameter sweep over depth, leaf size, feature subsampling, and number of trees. This tuning is intentionally modest: the goal is to improve performance without turning the project into a large black-box search.
 
