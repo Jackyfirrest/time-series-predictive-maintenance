@@ -6,10 +6,15 @@ __pycache__/
 .venv/
 venv/
 report/*.aux
+report/*.fdb_latexmk
+report/*.fls
 report/*.log
 report/*.out
+report/*.synctex.gz
 report/*.toc
+report/*.xdv
 instruction/
 report/guideline_alignment.md
 report/project_talking_points.md
 report/submission_checklist.md
+presentation/

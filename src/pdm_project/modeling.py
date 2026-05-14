@@ -201,3 +201,15 @@ def stationarity_diagnostics(df: pd.DataFrame) -> pd.DataFrame:
             }
         )
     return pd.DataFrame(rows)
+
+
+def feature_importance_table(model: RiskModel, top_n: int = 10) -> pd.DataFrame:
+    if not hasattr(model.result, "feature_importances_"):
+        raise ValueError("Feature importance is only available for tree-based sklearn models.")
+    importance_df = pd.DataFrame(
+        {
+            "feature": model.feature_cols,
+            "importance": model.result.feature_importances_,
+        }
+    ).sort_values("importance", ascending=False)
+    return importance_df.head(top_n).reset_index(drop=True)

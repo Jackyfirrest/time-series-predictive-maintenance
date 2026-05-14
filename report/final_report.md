@@ -10,6 +10,14 @@ This project uses a synthetic fleet of degrading machines. Each machine has a la
 
 The data are split into train, validation, and test fleets. For each timestamp, the supervised label is whether failure occurs within the next 8 periods.
 
+The table below summarizes the generated dataset across splits.
+
+| split | n_rows | n_machines | mean_failure_time | mean_path_length | vibration_min | vibration_max | temperature_min | temperature_max | pressure_min | pressure_max |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| train | 4726 | 90 | 51.5111 | 52.5111 | 0.2684 | 1.6225 | 57.0486 | 75.6074 | 96.5649 | 106.9888 |
+| validation | 1723 | 35 | 48.2286 | 49.2286 | 0.2871 | 1.6209 | 58.5078 | 75.6872 | 96.9107 | 106.9589 |
+| test | 1941 | 35 | 54.4571 | 55.4571 | 0.3233 | 1.5428 | 58.0908 | 75.3467 | 96.9284 | 107.4286 |
+
 ## Time-Series Features
 
 The baseline model uses only current age and raw sensors. The advanced GLM adds rolling means, rolling standard deviations, rolling slopes, and an online Holt level/trend representation of the vibration series. The strongest nonlinear model is a tree-ensemble hazard model built on richer time-series features: multi-scale rolling summaries, lagged sensors, first and second differences, exponentially weighted moving averages, and stress-contrast features that compare short-run behavior with longer-run baselines.
@@ -23,6 +31,21 @@ The baseline model uses only current age and raw sensors. The advanced GLM adds 
 | baseline_glm | 0.8732 | 0.0949 | 0.3045 |
 
 The best predictive model on the test set is `nonlinear_ts_forest`. This improvement is driven by explicitly modeling temporal dependence rather than treating each timestamp as an isolated cross-sectional observation.
+
+For the strongest nonlinear model, the top feature importances are shown below.
+
+| feature | importance |
+| --- | --- |
+| vibration_mean_15 | 0.0932 |
+| vibration_mean_8 | 0.0728 |
+| vibration_ewm_04 | 0.0627 |
+| pressure_ewm_04 | 0.0518 |
+| holt_level | 0.0517 |
+| pressure_mean_15 | 0.0480 |
+| pressure_mean_8 | 0.0468 |
+| health_proxy | 0.0412 |
+| pressure_mean_3 | 0.0392 |
+| vibration | 0.0329 |
 
 ## Diagnostics
 

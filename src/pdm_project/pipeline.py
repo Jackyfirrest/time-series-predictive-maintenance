@@ -14,6 +14,7 @@ from .modeling import (
     RICH_TS_FEATURES,
     calibration_table,
     evaluate_risk_model,
+    feature_importance_table,
     fit_risk_model,
     fit_tree_risk_model,
     residual_autocorrelation,
@@ -72,6 +73,7 @@ def _frame_to_latex(df: pd.DataFrame, caption: str, label: str) -> str:
         r"\centering",
         rf"\caption{{{_escape_latex(caption)}}}",
         rf"\label{{{label}}}",
+        r"\resizebox{\textwidth}{!}{%",
         rf"\begin{{tabular}}{{{column_spec}}}",
         r"\toprule",
         " & ".join(_escape_latex(col) for col in headers) + r" \\",
@@ -86,7 +88,7 @@ def _frame_to_latex(df: pd.DataFrame, caption: str, label: str) -> str:
             else:
                 values.append(_escape_latex(value))
         lines.append(" & ".join(values) + r" \\")
-    lines.extend([r"\bottomrule", r"\end{tabular}", r"\end{table}"])
+    lines.extend([r"\bottomrule", r"\end{tabular}}", r"\end{table}"])
     return "\n".join(lines)
 
 
@@ -190,6 +192,34 @@ def _plot_dqn_training(history_df: pd.DataFrame, output_dir: Path) -> None:
     plt.close(fig)
 
 
+def _dataset_summary(split_name: str, raw_df: pd.DataFrame) -> dict[str, float | int | str]:
+    grouped = raw_df.groupby("machine_id", sort=True)
+    return {
+        "split": split_name,
+        "n_rows": int(len(raw_df)),
+        "n_machines": int(raw_df["machine_id"].nunique()),
+        "mean_failure_time": float(grouped["failure_time"].first().mean()),
+        "mean_path_length": float(grouped.size().mean()),
+        "vibration_min": float(raw_df["vibration"].min()),
+        "vibration_max": float(raw_df["vibration"].max()),
+        "temperature_min": float(raw_df["temperature"].min()),
+        "temperature_max": float(raw_df["temperature"].max()),
+        "pressure_min": float(raw_df["pressure"].min()),
+        "pressure_max": float(raw_df["pressure"].max()),
+    }
+
+
+def _plot_feature_importance(importance_df: pd.DataFrame, output_dir: Path) -> None:
+    fig, ax = plt.subplots(figsize=(8.5, 5.5))
+    ordered = importance_df.iloc[::-1]
+    ax.barh(ordered["feature"], ordered["importance"], color="#2c7fb8")
+    ax.set_xlabel("Feature importance")
+    ax.set_title("Top feature importances: nonlinear time-series forest")
+    fig.tight_layout()
+    fig.savefig(output_dir / "feature_importance_top10.png", dpi=180)
+    plt.close(fig)
+
+
 def run_project() -> None:
     output_dir = Path("outputs")
     report_dir = Path("report")
@@ -199,6 +229,15 @@ def run_project() -> None:
     train_raw = simulate_fleet(n_machines=90, seed=2480)
     valid_raw = simulate_fleet(n_machines=35, seed=2481)
     test_raw = simulate_fleet(n_machines=35, seed=2482)
+
+    dataset_summary_df = pd.DataFrame(
+        [
+            _dataset_summary("train", train_raw),
+            _dataset_summary("validation", valid_raw),
+            _dataset_summary("test", test_raw),
+        ]
+    )
+    dataset_summary_df.to_csv(output_dir / "dataset_summary.csv", index=False)
 
     train_df = build_supervised_frame(train_raw)
     valid_df = build_supervised_frame(valid_raw)
@@ -237,6 +276,8 @@ def run_project() -> None:
 
     stationarity_df = stationarity_diagnostics(train_raw)
     stationarity_df.to_csv(output_dir / "stationarity_diagnostics.csv", index=False)
+    feature_importance_df = feature_importance_table(tree_model, top_n=10)
+    feature_importance_df.to_csv(output_dir / "feature_importance_top10.csv", index=False)
 
     best_model = tree_model if metrics.iloc[0]["model"] == "nonlinear_ts_forest" else advanced_model
     best_model_name = str(metrics.iloc[0]["model"])
@@ -289,6 +330,7 @@ def run_project() -> None:
     _plot_residual_acf(acf_df, output_dir)
     _plot_example_risk_path(test_df, best_model, output_dir)
     _plot_dqn_training(dqn_history, output_dir)
+    _plot_feature_importance(feature_importance_df, output_dir)
 
     summary_lines = [
         "# Final Report Draft",
@@ -303,6 +345,10 @@ def run_project() -> None:
         "",
         "The data are split into train, validation, and test fleets. For each timestamp, the supervised label is whether failure occurs within the next 8 periods.",
         "",
+        "The table below summarizes the generated dataset across splits.",
+        "",
+        _frame_to_markdown(dataset_summary_df),
+        "",
         "## Time-Series Features",
         "",
         "The baseline model uses only current age and raw sensors. The advanced GLM adds rolling means, rolling standard deviations, rolling slopes, and an online Holt level/trend representation of the vibration series. The strongest nonlinear model is a tree-ensemble hazard model built on richer time-series features: multi-scale rolling summaries, lagged sensors, first and second differences, exponentially weighted moving averages, and stress-contrast features that compare short-run behavior with longer-run baselines.",
@@ -312,6 +358,10 @@ def run_project() -> None:
         _frame_to_markdown(metrics),
         "",
         f"The best predictive model on the test set is `{best_model_name}`. This improvement is driven by explicitly modeling temporal dependence rather than treating each timestamp as an isolated cross-sectional observation.",
+        "",
+        "For the strongest nonlinear model, the top feature importances are shown below.",
+        "",
+        _frame_to_markdown(feature_importance_df),
         "",
         "## Diagnostics",
         "",
@@ -371,6 +421,8 @@ def run_project() -> None:
         r"\section{Data-Generating Process}",
         "The project uses a fully synthetic but reproducible fleet simulation. Each machine has a latent health process, a stressed operating regime, and three observed sensors: vibration, temperature, and pressure. Machines fail when latent health falls below a threshold or when a high-hazard event occurs near the end of life. The supervised label at each timestamp is whether failure occurs within the next eight periods.",
         "",
+        _frame_to_latex(dataset_summary_df, "Summary of the generated dataset across train, validation, and test splits.", "tab:data-summary"),
+        "",
         r"\section{Methods}",
         "Three predictive models are compared. The baseline GLM uses current age and raw sensor values. The advanced GLM adds rolling means, rolling standard deviations, rolling slopes, and Holt level-trend summaries. The nonlinear time-series forest extends this feature set with multi-scale rolling summaries, lags, first and second differences, exponentially weighted moving averages, and stress-contrast variables.",
         "",
@@ -380,11 +432,20 @@ def run_project() -> None:
         _frame_to_latex(metrics, "Predictive performance on the test fleet.", "tab:risk-metrics"),
         f"The best predictive model is \\texttt{{{_escape_latex(best_model_name)}}}. This supports the claim that explicit temporal representation improves short-horizon failure prediction beyond current sensor levels alone.",
         "",
+        _frame_to_latex(feature_importance_df, "Top ten feature importances for the nonlinear time-series forest.", "tab:feature-importance"),
+        "",
         r"\begin{figure}[H]",
         r"\centering",
         r"\includegraphics[width=0.82\textwidth]{../outputs/example_risk_path.png}",
         r"\caption{Predicted short-horizon failure risk for one example machine, shown alongside a representative sensor path.}",
         r"\label{fig:risk-path}",
+        r"\end{figure}",
+        "",
+        r"\begin{figure}[H]",
+        r"\centering",
+        r"\includegraphics[width=0.72\textwidth]{../outputs/feature_importance_top10.png}",
+        r"\caption{Top feature importances for the nonlinear time-series forest.}",
+        r"\label{fig:feature-importance}",
         r"\end{figure}",
         "",
         r"\section{Diagnostics}",
@@ -421,7 +482,7 @@ def run_project() -> None:
         "The project uses synthetic data rather than a real industrial benchmark, and the RL layer is intentionally lightweight. Natural extensions include state-space or hidden Markov formulations, richer partially observed RL, and evaluation on datasets such as NASA C-MAPSS. The DQN baseline included in the repository is best treated as an extension rather than the main result.",
         "",
         r"\section{Reproducibility}",
-        r"The full pipeline can be reproduced by installing the dependencies from \texttt{requirements.txt} and running \texttt{python run\_project.py}. The script regenerates all tables, figures, and both report formats. Additional reproduction notes are included in \texttt{REPRODUCIBILITY.md}.",
+        r"The full pipeline can be reproduced by installing the dependencies from \texttt{requirements.txt} and running \texttt{python run\_project.py}. The script regenerates all tables, figures, and both report formats. The notebook in \texttt{notebooks/final\_project\_analysis.ipynb} provides a complete end-to-end analysis starting from raw synthetic data generation.",
         "",
         r"\end{document}",
     ]

@@ -1,118 +1,137 @@
 # Time-Series-Driven Predictive Maintenance
 
-This repository is a polished course-project version of a time series final project. The main goal is simple and easy to explain:
+This repository contains a reproducible time-series analysis of predictive maintenance. The project studies whether temporal patterns in sensor streams improve short-horizon machine failure prediction, and whether those improved risk estimates lead to better maintenance decisions.
 
-1. use time-series sensor behavior to predict near-term machine failure risk
-2. convert that risk estimate into a maintenance decision
+## Project overview
 
-The core contribution is the time-series modeling. The policy layer is there to show why better forecasting matters operationally.
+The workflow has two connected parts:
 
-## Recommended project framing
+1. build failure-risk models from time-series sensor data
+2. compare maintenance policies that act on those risk estimates
 
-If you are presenting this as a class final project, the clearest storyline is:
+The main analytical question is:
 
-- this is first a time-series prediction project
-- predictive maintenance is the application setting
-- policy comparison is the decision-making extension
-- RL is included as a benchmark, not the main claim
+`Do richer time-series features improve near-term failure prediction beyond raw sensor levels alone?`
 
-That framing matches the current results and keeps the project from looking more complicated than it needs to be.
+The main operational question is:
 
-## What the project compares
+`Do better risk estimates reduce maintenance cost compared with reactive or fixed-schedule replacement?`
 
-Risk models:
+## Why this is a time-series problem
 
-- `baseline_glm`: age plus current sensor values
-- `advanced_glm`: adds rolling means, volatility, slopes, and Holt summaries
-- `nonlinear_ts_forest`: richer nonlinear model with lagged and multi-scale time-series features
+Machine failure is not driven by one isolated reading. It depends on how sensor signals evolve over time. In this project, vibration, temperature, and pressure become informative through their levels, local slopes, variability, lag structure, and short-run versus long-run behavior. Ignoring temporal dependence would discard much of the signal relevant to degradation and failure risk.
 
-Maintenance policies:
+## Data
+
+The repository uses a fully synthetic but reproducible benchmark generated inside the codebase. Each machine has:
+
+- a latent health state that degrades over time
+- a stressed operating regime that accelerates degradation
+- three observed sensors: vibration, temperature, and pressure
+
+A machine fails when latent health drops too low or when a high-hazard event occurs near the end of life. At each time point, the supervised target is whether failure occurs within the next 8 periods.
+
+Using synthetic data makes the full workflow reproducible and keeps the project self-contained for review and grading.
+
+## Methods
+
+### Predictive models
+
+- `baseline_glm`: age and current sensor values only
+- `advanced_glm`: adds rolling means, rolling standard deviations, rolling slopes, and Holt smoothing summaries
+- `nonlinear_ts_forest`: uses a richer nonlinear feature set with lags, differences, exponentially weighted averages, and multi-scale temporal summaries
+
+### Diagnostics
+
+The analysis includes:
+
+- stationarity checks on first-differenced sensor series
+- calibration assessment for predicted probabilities
+- residual dependence diagnostics
+
+### Decision layer
+
+The maintenance policies compared in the repository are:
 
 - reactive maintenance
 - fixed-age preventive maintenance
 - tuned risk-threshold policy
 - tabular Q-learning baseline
-- compact DQN baseline for extension/appendix discussion
+- compact DQN baseline
 
-## Repository layout
+The policy layer is included to connect prediction to operations. In the current results, the strongest gains still come from better time-series risk estimation rather than from a more complicated controller.
 
-- `src/pdm_project/`: simulation, feature engineering, risk modeling, policy learning, and CLI entrypoint
-- `run_project.py`: simple script entry for the full experiment
+## Main findings
+
+Across the experiments:
+
+- the strongest predictive model is `nonlinear_ts_forest`
+- the lowest-cost maintenance policy is the tuned risk-threshold rule
+- richer temporal representation matters more than controller complexity
+
+The central takeaway is that better modeling of sensor dynamics improves failure-risk estimation, and those better risk estimates translate into better maintenance decisions.
+
+## Repository structure
+
+- `notebooks/final_project_analysis.ipynb`: full reproducible notebook for the code report
+- `src/pdm_project/`: simulation, feature engineering, modeling, diagnostics, and policy code
 - `outputs/`: generated figures and summary tables
-- `instruction/`: course guidelines and original proposal PDF
-- `report/final_report.md`: auto-written report draft from the latest run
-- `report/final_report.tex`: paper-style LaTeX report generated by the pipeline
-- `report/project_talking_points.md`: short speaking notes for class presentation or defense
-- `report/submission_checklist.md`: final-project packaging checklist
-- `analysis_reproducible.md`: narrative reproducibility companion
-- `REPRODUCIBILITY.md`: exact rerun instructions and expected artifacts
-- `notebooks/final_project_analysis.ipynb`: notebook version of the workflow
-- `presentation/slide_outline.md`: presentation outline
-- `pyproject.toml`: package metadata and console entrypoint
-- `requirements.txt`: lightweight dependency list
+- `report/final_report.md`: Markdown report
+- `report/final_report.tex`: LaTeX report source
+- `report/final_report.pdf`: compiled paper-style report
+- `presentation/slide_outline.md`: presentation structure
+- `run_project.py`: one-command pipeline entrypoint
+- `reproduce.sh`: simple shell script for end-to-end reproduction
 
 ## Installation
+
+Install dependencies with:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-Optional editable install:
+## How to reproduce the analysis
 
-```bash
-pip install -e .
-```
-
-## How to run
-
-You can run the full pipeline in either of these ways:
+Run the full pipeline with:
 
 ```bash
 python run_project.py
 ```
 
+or with the provided shell script:
+
 ```bash
-pdm-project
+bash reproduce.sh
 ```
 
-The pipeline will:
+This regenerates the main tables, figures, and report outputs.
 
-- simulate train, validation, and test fleets
-- fit baseline, advanced, and nonlinear time-series risk models
-- evaluate discrimination, calibration, stationarity, and residual dependence
-- tune a risk-threshold maintenance policy
-- train RL baselines for policy comparison
-- write figures, CSV summaries, and a report draft
-- write both Markdown and LaTeX versions of the final report
+The notebook `notebooks/final_project_analysis.ipynb` contains a full end-to-end analysis starting from synthetic raw data generation and proceeding through preprocessing, model fitting, diagnostics, visualization, and policy evaluation.
 
-## Main modeling choices
+The repository is self-contained: no external restricted dataset is required, because the synthetic benchmark is generated directly in the codebase.
 
-- latent machine health follows a stochastic degradation process with stressed operating regimes
-- sensor streams encode degradation through level, slope, and volatility effects
-- the best risk model is selected using held-out predictive metrics
-- policy evaluation uses simple cost-based replacement rules to keep interpretation clear
-- RL is intentionally lightweight so the project stays explainable
-
-## Key outputs
+## Important outputs
 
 - `outputs/risk_model_metrics.csv`
+- `outputs/dataset_summary.csv`
+- `outputs/feature_importance_top10.csv`
 - `outputs/policy_summary.csv`
-- `outputs/dqn_training_history.csv`
 - `outputs/stationarity_diagnostics.csv`
 - `outputs/calibration_summary.csv`
 - `outputs/residual_acf.csv`
 - `outputs/example_trajectories.png`
 - `outputs/example_risk_path.png`
 - `outputs/calibration_curve.png`
-- `outputs/residual_acf.png`
+- `outputs/feature_importance_top10.png`
 - `outputs/policy_comparison.png`
-- `outputs/dqn_training_curve.png`
-- `report/final_report.md`
-- `report/final_report.tex`
-- `report/project_talking_points.md`
+- `report/final_report.pdf`
 
-## Suggested GitHub positioning
+## Recommended reading order
 
-If you upload this repo, a good short description would be:
+If you are reviewing the project for the first time, a good order is:
 
-`Course project on predictive maintenance using time-series failure-risk modeling and simple policy comparison.`
+1. read this `README.md`
+2. open `notebooks/final_project_analysis.ipynb`
+3. inspect `outputs/` for figures and summary tables
+4. read `report/final_report.pdf` for the paper-style write-up
