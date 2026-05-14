@@ -1,0 +1,17 @@
+model,lag,residual_acf
+advanced_glm,1,0.8754070970754109
+advanced_glm,2,0.7510027973000168
+advanced_glm,3,0.6277074147648022
+advanced_glm,4,0.5049623541182053
+advanced_glm,5,0.3834093648945099
+advanced_glm,6,0.2666911412352728
+advanced_glm,7,0.15596344737143428
+advanced_glm,8,0.05322262626264435
+nonlinear_ts_forest,1,0.8680835922596755
+nonlinear_ts_forest,2,0.743756644416349
+nonlinear_ts_forest,3,0.6300669020198326
+nonlinear_ts_forest,4,0.5124713346420022
+nonlinear_ts_forest,5,0.3945514640984819
+nonlinear_ts_forest,6,0.286610763000502
+nonlinear_ts_forest,7,0.1822241173630142
+nonlinear_ts_forest,8,0.0843923181052416

@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+.pytest_cache/
+.venv/
+venv/
+report/*.aux
+report/*.log
+report/*.out
+report/*.toc
+instruction/
+report/guideline_alignment.md
+report/project_talking_points.md
+report/submission_checklist.md
