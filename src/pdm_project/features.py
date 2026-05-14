@@ -33,16 +33,21 @@ def _holt_features(values: np.ndarray, alpha: float = 0.35, beta: float = 0.12) 
 
 def build_supervised_frame(
     df: pd.DataFrame,
-    horizon: int = 8,
-    windows: tuple[int, ...] = (3, 8, 15),
-    lags: tuple[int, ...] = (1, 2, 4),
+    sensor_cols: list[str],
+    setting_cols: list[str] | None = None,
+    horizon: int = 30,
+    windows: tuple[int, ...] = (5, 15, 30),
+    lags: tuple[int, ...] = (1, 3, 5),
 ) -> pd.DataFrame:
+    setting_cols = setting_cols or []
+    primary_sensor = sensor_cols[-1]
     frames = []
     for _, group in df.groupby("machine_id", sort=True):
         group = group.copy().reset_index(drop=True)
         group["fail_within_horizon"] = (group["time_to_failure"] <= horizon).astype(int)
+        group["cycle_ratio"] = group["age"] / max(float(group["age"].max()), 1.0)
 
-        for sensor in ["vibration", "temperature", "pressure"]:
+        for sensor in sensor_cols:
             for window in windows:
                 group[f"{sensor}_mean_{window}"] = group[sensor].rolling(window, min_periods=1).mean()
                 group[f"{sensor}_std_{window}"] = (
@@ -60,21 +65,19 @@ def build_supervised_frame(
             group[f"{sensor}_ewm_04"] = group[sensor].ewm(alpha=0.4, adjust=False).mean()
             group[f"{sensor}_ewm_resid"] = group[sensor] - group[f"{sensor}_ewm_04"]
 
-        level, trend = _holt_features(group["vibration"].to_numpy())
+        for setting in setting_cols:
+            group[f"{setting}_demeaned"] = group[setting] - group[setting].mean()
+
+        level, trend = _holt_features(group[primary_sensor].to_numpy())
         group["holt_level"] = level
         group["holt_trend"] = trend
-        group["vibration_resid"] = group["vibration"] - group["holt_level"]
-        group["combined_stress"] = (
-            group["vibration_mean_3"] + 0.025 * group["temperature_mean_3"] - 0.03 * group["pressure_mean_3"]
+        group["primary_sensor_resid"] = group[primary_sensor] - group["holt_level"]
+        group["mean_sensor_level_5"] = group[[f"{sensor}_mean_{windows[0]}" for sensor in sensor_cols]].mean(axis=1)
+        group["mean_sensor_level_30"] = group[[f"{sensor}_mean_{windows[-1]}" for sensor in sensor_cols]].mean(axis=1)
+        group["sensor_stress_gap"] = group["mean_sensor_level_5"] - group["mean_sensor_level_30"]
+        group["primary_sensor_acceleration"] = (
+            group[f"{primary_sensor}_slope_{windows[0]}"] - group[f"{primary_sensor}_slope_{windows[-1]}"]
         )
-        group["health_proxy"] = (
-            0.65 * group["vibration_mean_8"]
-            + 0.03 * group["temperature_mean_8"]
-            - 0.035 * group["pressure_mean_8"]
-        )
-        group["pressure_drop_vs_long_run"] = group["pressure_mean_3"] - group["pressure_mean_15"]
-        group["temp_rise_vs_long_run"] = group["temperature_mean_3"] - group["temperature_mean_15"]
-        group["vibration_acceleration"] = group["vibration_slope_3"] - group["vibration_slope_15"]
         frames.append(group)
     return pd.concat(frames, ignore_index=True)
 

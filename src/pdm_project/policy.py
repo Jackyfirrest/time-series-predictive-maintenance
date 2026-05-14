@@ -5,26 +5,24 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from .features import build_supervised_frame
 from .modeling import RiskModel
-from .simulator import SimulatorConfig, simulate_machine
 
 
 @dataclass
 class PolicyConfig:
     preventive_cost: float = 18.0
     failure_cost: float = 95.0
-    horizon: int = 140
+    horizon: int = 4000
 
 
 @dataclass
 class DQNConfig:
-    hidden_dim: int = 16
-    learning_rate: float = 0.01
+    hidden_dim: int = 24
+    learning_rate: float = 0.008
     gamma: float = 0.98
     epsilon_start: float = 1.0
     epsilon_end: float = 0.05
-    epsilon_decay: float = 0.965
+    epsilon_decay: float = 0.98
     target_sync_every: int = 50
 
 
@@ -46,16 +44,22 @@ class DQNPolicy:
     def _obs_to_vector(self, obs: dict[str, float]) -> np.ndarray:
         risk = float(obs["risk"])
         age_scaled = float(obs["age"]) / self.horizon
-        return np.array([risk, age_scaled, risk * age_scaled], dtype=float)
+        risk_delta = float(obs["risk_delta"])
+        return np.array([risk, age_scaled, risk_delta, risk * age_scaled, risk**2], dtype=float)
 
     def q_values(self, obs: dict[str, float]) -> np.ndarray:
         x = self._obs_to_vector(obs)[None, :]
         hidden = np.maximum(0.0, x @ self.w1 + self.b1)
         return (hidden @ self.w2 + self.b2)[0]
 
-    def __call__(self, state: tuple[int, int], obs: dict[str, float]) -> int:
+    def __call__(self, state: tuple[int, int, int], obs: dict[str, float]) -> int:
         del state
         return int(np.argmax(self.q_values(obs)))
+
+
+RISK_EDGES = [0.10, 0.25, 0.45, 0.65]
+AGE_EDGES = [25, 50, 100, 150, 200]
+RISK_DELTA_EDGES = [-0.02, 0.02, 0.08]
 
 
 class MaintenanceEnv:
@@ -63,23 +67,21 @@ class MaintenanceEnv:
         self,
         seed: int,
         risk_model: RiskModel,
-        sim_config: SimulatorConfig | None = None,
+        trajectory_pool: list[pd.DataFrame],
         policy_config: PolicyConfig | None = None,
     ) -> None:
         self.rng = np.random.default_rng(seed)
         self.risk_model = risk_model
-        self.sim_config = sim_config or SimulatorConfig()
+        self.trajectory_pool = trajectory_pool
         self.policy_config = policy_config or PolicyConfig()
-        self.machine_counter = 0
         self.machine_df = pd.DataFrame()
-        self.machine_features = pd.DataFrame()
         self.idx = 0
         self.total_time = 0
         self.done = False
         self.n_replacements = 0
         self.n_failures = 0
 
-    def reset(self) -> tuple[tuple[int, int], dict[str, float]]:
+    def reset(self) -> tuple[tuple[int, int, int], dict[str, float]]:
         self.total_time = 0
         self.done = False
         self.n_replacements = 0
@@ -89,31 +91,41 @@ class MaintenanceEnv:
         return self._state(obs), obs
 
     def _load_new_machine(self) -> None:
-        self.machine_df = simulate_machine(self.machine_counter, self.rng, self.sim_config)
-        self.machine_features = build_supervised_frame(self.machine_df, horizon=8).reset_index(drop=True)
-        self.machine_features["predicted_risk"] = self.risk_model.predict(self.machine_features)
-        self.machine_counter += 1
+        selected = int(self.rng.integers(0, len(self.trajectory_pool)))
+        self.machine_df = self.trajectory_pool[selected].reset_index(drop=True).copy()
         self.idx = 0
 
     def _current_obs(self) -> dict[str, float]:
-        risk = float(self.machine_features.iloc[self.idx]["predicted_risk"])
         row = self.machine_df.iloc[self.idx]
-        return {"risk": risk, "age": float(row["age"]), "failed": float(row["failed"])}
+        prev_risk = float(self.machine_df.iloc[self.idx - 1]["predicted_risk"]) if self.idx > 0 else 0.0
+        current_risk = float(row["predicted_risk"])
+        return {
+            "risk": current_risk,
+            "risk_delta": current_risk - prev_risk,
+            "age": float(row["age"]),
+            "failed": float(row["failed"]),
+        }
 
     @staticmethod
     def _risk_bucket(risk: float) -> int:
-        edges = [0.10, 0.25, 0.45, 0.65]
-        return int(np.digitize([risk], edges)[0])
+        return int(np.digitize([risk], RISK_EDGES)[0])
 
     @staticmethod
     def _age_bucket(age: float) -> int:
-        edges = [25, 50, 75, 100]
-        return int(np.digitize([age], edges)[0])
+        return int(np.digitize([age], AGE_EDGES)[0])
 
-    def _state(self, obs: dict[str, float]) -> tuple[int, int]:
-        return (self._risk_bucket(obs["risk"]), self._age_bucket(obs["age"]))
+    @staticmethod
+    def _risk_delta_bucket(risk_delta: float) -> int:
+        return int(np.digitize([risk_delta], RISK_DELTA_EDGES)[0])
 
-    def step(self, action: int) -> tuple[tuple[int, int], dict[str, float], float, bool]:
+    def _state(self, obs: dict[str, float]) -> tuple[int, int, int]:
+        return (
+            self._risk_bucket(obs["risk"]),
+            self._age_bucket(obs["age"]),
+            self._risk_delta_bucket(obs["risk_delta"]),
+        )
+
+    def step(self, action: int) -> tuple[tuple[int, int, int], dict[str, float], float, bool]:
         cost = 0.0
         if action == 1:
             cost += self.policy_config.preventive_cost
@@ -143,6 +155,7 @@ class MaintenanceEnv:
 def evaluate_policy(
     env_seed: int,
     risk_model: RiskModel,
+    trajectory_pool: list[pd.DataFrame],
     policy_name: str,
     policy_fn,
     n_episodes: int = 14,
@@ -151,7 +164,7 @@ def evaluate_policy(
     replacements = []
     failures = []
     for episode in range(n_episodes):
-        env = MaintenanceEnv(seed=env_seed + episode, risk_model=risk_model)
+        env = MaintenanceEnv(seed=env_seed + episode, risk_model=risk_model, trajectory_pool=trajectory_pool)
         state, obs = env.reset()
         done = False
         total_reward = 0.0
@@ -166,67 +179,90 @@ def evaluate_policy(
         "policy": policy_name,
         "avg_reward": float(np.mean(rewards)),
         "avg_cost": float(-np.mean(rewards)),
+        "std_cost": float(np.std([-reward for reward in rewards], ddof=0)),
         "avg_replacements": float(np.mean(replacements)),
         "avg_failures": float(np.mean(failures)),
     }
 
 
-def tune_threshold_policy(valid_df: pd.DataFrame, risk_model: RiskModel) -> float:
+def threshold_sweep(
+    valid_df: pd.DataFrame,
+    risk_model: RiskModel,
+    thresholds: np.ndarray | None = None,
+) -> pd.DataFrame:
     preds = risk_model.predict(valid_df)
-    costs = []
     y = valid_df["fail_within_horizon"].to_numpy()
-    for threshold in np.linspace(0.05, 0.95, 19):
+    thresholds = thresholds if thresholds is not None else np.linspace(0.05, 0.95, 19)
+    rows: list[dict[str, float]] = []
+    for threshold in thresholds:
         preventive = preds >= threshold
         expected_cost = np.mean(preventive * 18.0 + (~preventive) * y * 95.0)
-        costs.append((expected_cost, threshold))
-    costs.sort()
-    return float(costs[0][1])
+        preventive_rate = float(np.mean(preventive))
+        miss_rate = float(np.mean((~preventive) * y))
+        rows.append(
+            {
+                "threshold": float(threshold),
+                "expected_cost": float(expected_cost),
+                "preventive_rate": preventive_rate,
+                "miss_rate": miss_rate,
+            }
+        )
+    return pd.DataFrame(rows).sort_values("threshold").reset_index(drop=True)
+
+
+def tune_threshold_policy(valid_df: pd.DataFrame, risk_model: RiskModel) -> float:
+    sweep_df = threshold_sweep(valid_df, risk_model)
+    best_row = sweep_df.sort_values(["expected_cost", "threshold"], ascending=[True, True]).iloc[0]
+    return float(best_row["threshold"])
 
 
 def train_q_learning_policy(
     risk_model: RiskModel,
+    trajectory_pool: list[pd.DataFrame],
     seed: int = 2026,
-    n_episodes: int = 70,
+    n_episodes: int = 120,
     alpha: float = 0.12,
     gamma: float = 0.98,
-    epsilon: float = 0.12,
+    epsilon: float = 0.16,
 ) -> np.ndarray:
-    q = np.zeros((5, 5, 2), dtype=float)
+    q = np.zeros((len(RISK_EDGES) + 1, len(AGE_EDGES) + 1, len(RISK_DELTA_EDGES) + 1, 2), dtype=float)
     rng = np.random.default_rng(seed)
     for episode in range(n_episodes):
-        env = MaintenanceEnv(seed=seed + episode, risk_model=risk_model)
+        env = MaintenanceEnv(seed=seed + episode, risk_model=risk_model, trajectory_pool=trajectory_pool)
         state, obs = env.reset()
         done = False
         while not done:
             if rng.random() < epsilon:
                 action = int(rng.integers(0, 2))
             else:
-                action = int(np.argmax(q[state[0], state[1]]))
+                action = int(np.argmax(q[state[0], state[1], state[2]]))
             next_state, obs, reward, done = env.step(action)
-            td_target = reward + (0.0 if done else gamma * np.max(q[next_state[0], next_state[1]]))
-            td_error = td_target - q[state[0], state[1], action]
-            q[state[0], state[1], action] += alpha * td_error
+            shaped_reward = reward - (4.0 * float(obs["risk"]) if action == 0 else 0.0)
+            td_target = shaped_reward + (0.0 if done else gamma * np.max(q[next_state[0], next_state[1], next_state[2]]))
+            td_error = td_target - q[state[0], state[1], state[2], action]
+            q[state[0], state[1], state[2], action] += alpha * td_error
             state = next_state
     return q
 
 
 def q_policy_from_table(q_table: np.ndarray):
-    def _policy(state: tuple[int, int], obs: dict[str, float]) -> int:
+    def _policy(state: tuple[int, int, int], obs: dict[str, float]) -> int:
         del obs
-        return int(np.argmax(q_table[state[0], state[1]]))
+        return int(np.argmax(q_table[state[0], state[1], state[2]]))
 
     return _policy
 
 
 def train_dqn_policy(
     risk_model: RiskModel,
+    trajectory_pool: list[pd.DataFrame],
     seed: int = 2026,
-    n_episodes: int = 10,
+    n_episodes: int = 24,
     config: DQNConfig | None = None,
 ) -> tuple[DQNPolicy, pd.DataFrame]:
     config = config or DQNConfig()
     rng = np.random.default_rng(seed)
-    obs_dim = 3
+    obs_dim = 5
     action_dim = 2
     horizon = float(PolicyConfig().horizon)
 
@@ -247,7 +283,8 @@ def train_dqn_policy(
     def obs_to_vector(obs: dict[str, float]) -> np.ndarray:
         risk = float(obs["risk"])
         age_scaled = float(obs["age"]) / horizon
-        return np.array([risk, age_scaled, risk * age_scaled], dtype=float)
+        risk_delta = float(obs["risk_delta"])
+        return np.array([risk, age_scaled, risk_delta, risk * age_scaled, risk**2], dtype=float)
 
     def forward(
         x: np.ndarray,
@@ -287,7 +324,7 @@ def train_dqn_policy(
         return float(loss)
 
     for episode in range(n_episodes):
-        env = MaintenanceEnv(seed=seed + episode, risk_model=risk_model)
+        env = MaintenanceEnv(seed=seed + episode, risk_model=risk_model, trajectory_pool=trajectory_pool)
         _, obs = env.reset()
         done = False
         total_reward = 0.0
@@ -302,11 +339,12 @@ def train_dqn_policy(
                 action = int(np.argmax(q_values[0]))
 
             _, next_obs, reward, done = env.step(action)
+            shaped_reward = reward - (4.0 * float(next_obs["risk"]) if action == 0 else 0.0)
             next_state_vec = obs_to_vector(next_obs)
             total_reward += reward
             obs = next_obs
             total_steps += 1
-            episode_losses.append(train_step(state_vec, action, reward, next_state_vec, done))
+            episode_losses.append(train_step(state_vec, action, shaped_reward, next_state_vec, done))
 
             if total_steps % config.target_sync_every == 0:
                 target_w1 = w1.copy()

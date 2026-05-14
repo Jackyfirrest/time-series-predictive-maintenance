@@ -9,7 +9,7 @@
 \usepackage[utf8]{inputenc}
 \onehalfspacing
 
-\title{Time-Series-Driven Predictive Maintenance}
+\title{Time-Series-Driven Predictive Maintenance with NASA C-MAPSS}
 \author{Stat 248 Final Project}
 \date{\today}
 
@@ -17,53 +17,74 @@
 \maketitle
 
 \begin{abstract}
-This project studies predictive maintenance as a time-series forecasting problem with an operational decision layer. A synthetic fleet of degrading machines generates vibration, temperature, and pressure signals over time. The main question is whether richer temporal summaries improve short-horizon failure-risk prediction and, in turn, lower maintenance cost. Results show that nonlinear time-series features improve predictive accuracy over raw-sensor baselines, and a simple risk-threshold policy outperforms reactive and fixed-schedule maintenance. The main lesson is that better temporal representation matters more than a more complicated controller.
+This project studies predictive maintenance as a time-series forecasting problem using the NASA C-MAPSS FD001 turbofan engine degradation benchmark. The main question is whether richer temporal summaries improve short-horizon failure-risk prediction and, in turn, lower maintenance cost. Results compare generalized linear baselines, a nonlinear time-series forest, and several maintenance policies driven by predicted risk. In the main snapshot-only versus temporal-context comparison, the strongest predictive model is the nonlinear time-series forest, while a tuned risk-threshold policy achieves the lowest maintenance cost.
 \end{abstract}
 
 \section{Introduction}
-Predictive maintenance is a natural time-series problem because machine failure is driven by the evolution of degradation rather than by one isolated sensor reading. In this project, the main objective is to determine whether temporal summaries extracted from sensor streams improve near-term failure prediction. A secondary objective is to show that better risk estimates can be converted into better maintenance decisions.
+Predictive maintenance is a natural time-series problem because engine failure risk depends on how sensor signals evolve over time rather than on one isolated reading. This project evaluates whether explicit temporal features from C-MAPSS trajectories improve near-term failure prediction and whether those better risk estimates translate into better maintenance decisions.
 
-\section{Data-Generating Process}
-The project uses a fully synthetic but reproducible fleet simulation. Each machine has a latent health process, a stressed operating regime, and three observed sensors: vibration, temperature, and pressure. Machines fail when latent health falls below a threshold or when a high-hazard event occurs near the end of life. The supervised label at each timestamp is whether failure occurs within the next eight periods.
+\section{Data}
+The analysis uses the NASA C-MAPSS FD001 subset. Because the downstream maintenance experiment requires complete run-to-failure trajectories, engine units from the training file are split into train, validation, and test partitions. The supervised label at each cycle is whether failure occurs within the next thirty cycles.
 
 \begin{table}[H]
 \centering
-\caption{Summary of the generated dataset across train, validation, and test splits.}
+\caption{Summary of the FD001 engine-unit splits used in the analysis.}
 \label{tab:data-summary}
 \resizebox{\textwidth}{!}{%
-\begin{tabular}{lrrrrrrrrrr}
+\begin{tabular}{lrrrrr}
 \toprule
-split & n\_rows & n\_machines & mean\_failure\_time & mean\_path\_length & vibration\_min & vibration\_max & temperature\_min & temperature\_max & pressure\_min & pressure\_max \\
+split & n\_rows & n\_machines & mean\_failure\_time & mean\_path\_length & positive\_rate\_h30 \\
 \midrule
-train & 4726 & 90 & 51.5111 & 52.5111 & 0.2684 & 1.6225 & 57.0486 & 75.6074 & 96.5649 & 106.9888 \\
-validation & 1723 & 35 & 48.2286 & 49.2286 & 0.2871 & 1.6209 & 58.5078 & 75.6872 & 96.9107 & 106.9589 \\
-test & 1941 & 35 & 54.4571 & 55.4571 & 0.3233 & 1.5428 & 58.0908 & 75.3467 & 96.9284 & 107.4286 \\
+train & 14520 & 70 & 207.4286 & 207.4286 & 0.1494 \\
+validation & 3001 & 15 & 200.0667 & 200.0667 & 0.1549 \\
+test & 3110 & 15 & 207.3333 & 207.3333 & 0.1495 \\
 \bottomrule
 \end{tabular}}
 \end{table}
 
 \section{Methods}
-Three predictive models are compared. The baseline GLM uses current age and raw sensor values. The advanced GLM adds rolling means, rolling standard deviations, rolling slopes, and Holt level-trend summaries. The nonlinear time-series forest extends this feature set with multi-scale rolling summaries, lags, first and second differences, exponentially weighted moving averages, and stress-contrast variables.
+Three predictive models are compared. The baseline GLM uses only current-cycle operating settings and sensor readings from sensor\_7, sensor\_11, sensor\_12, sensor\_15, sensor\_20, sensor\_21. The advanced GLM adds rolling means, rolling standard deviations, slopes, and Holt summaries. The nonlinear time-series forest extends this feature set with lags, first and second differences, exponentially weighted averages, and short-run versus long-run sensor contrasts.
 
-To connect prediction with decision-making, the project compares reactive maintenance, fixed-age replacement, a tuned risk-threshold policy, tabular Q-learning, and a compact DQN extension. The RL methods are included as benchmarks, but the main focus remains on the time-series forecasting layer.
+For the nonlinear model, a small validation-based hyperparameter sweep over tree depth, leaf size, feature subsampling, and number of trees is used to improve out-of-sample performance without shifting the project toward large-scale automated search.
+
+To connect prediction with decision-making, the project compares reactive maintenance, a fixed-age replacement rule, a tuned risk-threshold policy, tabular Q-learning, and a compact DQN extension. The strengthened RL state includes current predicted risk, age, and recent risk change, and the training reward discourages continuing operation under high predicted risk. The RL methods are included as benchmarks, but the main focus remains on the time-series forecasting layer.
 
 \section{Predictive Results}
 \begin{table}[H]
 \centering
-\caption{Predictive performance on the test fleet.}
+\caption{Predictive performance on held-out FD001 engine units.}
 \label{tab:risk-metrics}
 \resizebox{\textwidth}{!}{%
-\begin{tabular}{lrrr}
+\begin{tabular}{lrrrr}
 \toprule
-model & auc & brier & log\_loss \\
+model & auc & pr\_auc & brier & log\_loss \\
 \midrule
-nonlinear\_ts\_forest & 0.8821 & 0.0922 & 0.2972 \\
-advanced\_glm & 0.8790 & 0.0935 & 0.2997 \\
-baseline\_glm & 0.8732 & 0.0949 & 0.3045 \\
+nonlinear\_ts\_forest & 0.9962 & 0.9797 & 0.0193 & 0.0635 \\
+advanced\_glm & 0.9936 & 0.9680 & 0.0227 & 0.0739 \\
+baseline\_glm & 0.9808 & 0.9178 & 0.0371 & 0.1234 \\
 \bottomrule
 \end{tabular}}
 \end{table}
-The best predictive model is \texttt{nonlinear\_ts\_forest}. This supports the claim that explicit temporal representation improves short-horizon failure prediction beyond current sensor levels alone.
+The best predictive model is \texttt{nonlinear\_ts\_forest}. Because the main comparison is snapshot-only versus temporal-context models, this result supports the claim that explicit time-series information improves short-horizon failure prediction.
+Grouped bootstrap confidence intervals by engine unit are additionally saved in \texttt{outputs/risk\_model\_metrics\_with\_ci.csv}.
+
+\begin{table}[H]
+\centering
+\caption{Validation results for the nonlinear time-series forest hyperparameter sweep.}
+\label{tab:tree-tuning}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lrrrrrrrr}
+\toprule
+candidate & n\_estimators & max\_depth & min\_samples\_leaf & max\_features & auc & pr\_auc & brier & log\_loss \\
+\midrule
+4 & 300 & 10 & 6 & 0.5 & 0.9930 & 0.9674 & 0.0235 & 0.0781 \\
+5 & 300 & 12 & 6 & 0.5 & 0.9930 & 0.9672 & 0.0235 & 0.0781 \\
+3 & 240 & 10 & 8 & sqrt & 0.9936 & 0.9701 & 0.0235 & 0.0797 \\
+1 & 180 & 8 & 10 & sqrt & 0.9936 & 0.9697 & 0.0237 & 0.0804 \\
+2 & 240 & 8 & 8 & sqrt & 0.9935 & 0.9695 & 0.0237 & 0.0803 \\
+\bottomrule
+\end{tabular}}
+\end{table}
 
 \begin{table}[H]
 \centering
@@ -74,16 +95,16 @@ The best predictive model is \texttt{nonlinear\_ts\_forest}. This supports the c
 \toprule
 feature & importance \\
 \midrule
-vibration\_mean\_15 & 0.0932 \\
-vibration\_mean\_8 & 0.0728 \\
-vibration\_ewm\_04 & 0.0627 \\
-pressure\_ewm\_04 & 0.0518 \\
-holt\_level & 0.0517 \\
-pressure\_mean\_15 & 0.0480 \\
-pressure\_mean\_8 & 0.0468 \\
-health\_proxy & 0.0412 \\
-pressure\_mean\_3 & 0.0392 \\
-vibration & 0.0329 \\
+sensor\_11\_mean\_5 & 0.3179 \\
+sensor\_11\_ewm\_04 & 0.2485 \\
+mean\_sensor\_level\_5 & 0.0570 \\
+sensor\_11\_slope\_30 & 0.0564 \\
+holt\_level & 0.0370 \\
+sensor\_11\_mean\_15 & 0.0297 \\
+sensor\_15\_mean\_5 & 0.0232 \\
+sensor\_15\_mean\_15 & 0.0199 \\
+sensor\_12\_slope\_30 & 0.0186 \\
+sensor\_15\_ewm\_04 & 0.0147 \\
 \bottomrule
 \end{tabular}}
 \end{table}
@@ -91,7 +112,7 @@ vibration & 0.0329 \\
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.82\textwidth]{../outputs/example_risk_path.png}
-\caption{Predicted short-horizon failure risk for one example machine, shown alongside a representative sensor path.}
+\caption{Predicted short-horizon failure risk for one example engine trajectory, shown alongside a representative sensor channel.}
 \label{fig:risk-path}
 \end{figure}
 
@@ -103,20 +124,20 @@ vibration & 0.0329 \\
 \end{figure}
 
 \section{Diagnostics}
-To validate the time-series workflow, the project includes augmented Dickey-Fuller checks on first-differenced sensor series, calibration summaries for predicted probabilities, and residual dependence diagnostics.
+To validate the time-series workflow, the project includes augmented Dickey-Fuller checks on first-differenced representative sensor channels, calibration summaries for predicted probabilities, and residual dependence diagnostics.
 
 \begin{table}[H]
 \centering
-\caption{ADF diagnostics on first-differenced sensor series.}
+\caption{ADF diagnostics on first-differenced representative sensor channels.}
 \label{tab:stationarity}
 \resizebox{\textwidth}{!}{%
 \begin{tabular}{lrrr}
 \toprule
 series & adf\_stat & p\_value & crit\_5pct \\
 \midrule
-vibration\_first\_difference & -19.0789 & 0.0000 & -2.8622 \\
-temperature\_first\_difference & -18.2645 & 0.0000 & -2.8622 \\
-pressure\_first\_difference & -22.7867 & 0.0000 & -2.8622 \\
+sensor\_7\_first\_difference & -40.8928 & 0.0000 & -2.8617 \\
+sensor\_12\_first\_difference & -48.5081 & 0.0000 & -2.8617 \\
+sensor\_21\_first\_difference & -20.7355 & 0.0000 & -2.8617 \\
 \bottomrule
 \end{tabular}}
 \end{table}
@@ -130,27 +151,27 @@ pressure\_first\_difference & -22.7867 & 0.0000 & -2.8622 \\
 \end{figure}
 
 \section{Maintenance Policy Comparison}
-Policies are evaluated in a continuing-operation environment in which each replacement starts a fresh machine. Preventive replacement costs 18 units, while failure-driven replacement costs 95 units.
+Policies are evaluated in a continuing-operation environment that repeatedly samples held-out FD001 trajectories. Preventive replacement costs 18 units, while failure-driven replacement costs 95 units. The risk-threshold rule is tuned on the validation split by sweeping candidate thresholds and selecting the one with the lowest expected cost.
 
 \begin{table}[H]
 \centering
 \caption{Average cost and event counts by maintenance policy.}
 \label{tab:policy-results}
 \resizebox{\textwidth}{!}{%
-\begin{tabular}{lrrrr}
+\begin{tabular}{lrrrrr}
 \toprule
-policy & avg\_reward & avg\_cost & avg\_replacements & avg\_failures \\
+policy & avg\_reward & avg\_cost & std\_cost & avg\_replacements & avg\_failures \\
 \midrule
-risk\_threshold\_0.25 & -77.6429 & 77.6429 & 2.7857 & 0.3571 \\
-q\_learning & -100.4286 & 100.4286 & 4.3571 & 0.2857 \\
-age\_threshold\_75 & -200.6429 & 200.6429 & 2.2857 & 2.0714 \\
-reactive & -203.5714 & 203.5714 & 2.1429 & 2.1429 \\
-dqn & -223.9286 & 223.9286 & 2.3571 & 2.3571 \\
+risk\_threshold\_0.30 & -414.0000 & 414.0000 & 15.2128 & 23.0000 & 0.0000 \\
+age\_threshold\_196 & -1108.2143 & 1108.2143 & 152.2292 & 20.9286 & 9.5000 \\
+q\_learning & -1210.9286 & 1210.9286 & 103.4377 & 22.3571 & 10.5000 \\
+reactive & -1784.6429 & 1784.6429 & 81.7108 & 18.7857 & 18.7857 \\
+dqn & -1784.6429 & 1784.6429 & 73.3987 & 18.7857 & 18.7857 \\
 \bottomrule
 \end{tabular}}
 \end{table}
 
-The tuned risk-threshold rule uses a threshold of 0.25. It achieves the lowest average cost in this experiment, which reinforces the main story of the project: once the risk estimate is informative, a simple decision rule can be highly effective.
+The tuned risk-threshold rule uses a threshold of 0.30. It achieves the lowest average cost in this experiment, which reinforces the practical story of the project: once the risk estimate is informative, a simple decision rule can be highly effective.
 
 \begin{figure}[H]
 \centering
@@ -159,13 +180,55 @@ The tuned risk-threshold rule uses a threshold of 0.25. It achieves the lowest a
 \label{fig:policy-comparison}
 \end{figure}
 
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.68\textwidth]{../outputs/threshold_tuning_curve.png}
+\caption{Validation threshold sweep for the risk-based maintenance policy.}
+\label{fig:threshold-sweep}
+\end{figure}
+
+\section{Robustness Extension}
+To assess whether the central forecasting result depends too strongly on the simplest C-MAPSS subset, the predictive comparison was rerun on FD002, FD003, and FD004 using the same train-validation-test protocol. This extension is limited to prediction rather than full policy evaluation so that it can function as an appendix-style robustness check.
+
+\begin{table}[H]
+\centering
+\caption{Predictive robustness across the four standard C-MAPSS subsets.}
+\label{tab:robustness}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lrrrrr}
+\toprule
+subset & model & auc & pr\_auc & brier & log\_loss \\
+\midrule
+FD001 & baseline\_glm & 0.9808 & 0.9178 & 0.0371 & 0.1234 \\
+FD001 & advanced\_glm & 0.9936 & 0.9680 & 0.0227 & 0.0739 \\
+FD001 & nonlinear\_ts\_forest & 0.9962 & 0.9797 & 0.0193 & 0.0635 \\
+FD002 & baseline\_glm & 0.9380 & 0.7986 & 0.0598 & 0.2062 \\
+FD002 & advanced\_glm & 0.9823 & 0.9111 & 0.0368 & 0.1246 \\
+FD002 & nonlinear\_ts\_forest & 0.9833 & 0.9181 & 0.0583 & 0.2144 \\
+FD003 & baseline\_glm & 0.9872 & 0.9133 & 0.0282 & 0.0938 \\
+FD003 & advanced\_glm & 0.9962 & 0.9741 & 0.0164 & 0.0520 \\
+FD003 & nonlinear\_ts\_forest & 0.9966 & 0.9780 & 0.0148 & 0.0501 \\
+FD004 & baseline\_glm & 0.9161 & 0.7321 & 0.0503 & 0.1868 \\
+FD004 & advanced\_glm & 0.9799 & 0.8566 & 0.0370 & 0.1185 \\
+FD004 & nonlinear\_ts\_forest & 0.9489 & 0.7213 & 0.0611 & 0.2194 \\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.74\textwidth]{../outputs/robustness_auc_by_subset.png}
+\caption{AUC comparison across FD001 through FD004.}
+\label{fig:robustness}
+\end{figure}
+
 \section{Discussion}
-The strongest improvement in this project comes from better temporal representation rather than from a more complicated control algorithm. This is helpful for a course project because it keeps the main contribution easy to explain: rolling summaries, slopes, and lag structure turn noisy sensor streams into operationally useful risk estimates. The policy layer then demonstrates why that forecasting improvement matters.
+The strongest practical lesson in this project is that temporal context improves prediction when compared against a true snapshot-only baseline. The richer models capture information in short-run and medium-run sensor evolution that is not available from a single cycle alone.
 
 \section{Limitations and Future Work}
-The project uses synthetic data rather than a real industrial benchmark, and the RL layer is intentionally lightweight. Natural extensions include state-space or hidden Markov formulations, richer partially observed RL, and evaluation on datasets such as NASA C-MAPSS. The DQN baseline included in the repository is best treated as an extension rather than the main result.
+The main limitations are that the operational comparison is still lightweight and that the robustness extension focuses on predictive metrics rather than full policy evaluation on every subset. Even after strengthening the RL state and reward, the tuned threshold controller remains easier to tune and more effective in this setup. Natural extensions include subset-specific operating regimes, richer partial observability, and recurrent or state-space formulations for maintenance control.
 
 \section{Reproducibility}
-The full pipeline can be reproduced by installing the dependencies from \texttt{requirements.txt} and running \texttt{python run\_project.py}. The script regenerates all tables, figures, and both report formats. The notebook in \texttt{notebooks/final\_project\_analysis.ipynb} provides a complete end-to-end analysis starting from raw synthetic data generation.
+The full pipeline can be reproduced by placing the NASA C-MAPSS files in \texttt{data/CMAPSSData/}, installing dependencies from \texttt{requirements.txt}, and running \texttt{python run\_project.py}. The script regenerates all tables, figures, and both report formats.
 
 \end{document}
