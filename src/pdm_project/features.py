@@ -44,40 +44,46 @@ def build_supervised_frame(
     frames = []
     for _, group in df.groupby("machine_id", sort=True):
         group = group.copy().reset_index(drop=True)
-        group["fail_within_horizon"] = (group["time_to_failure"] <= horizon).astype(int)
-        group["cycle_ratio"] = group["age"] / max(float(group["age"].max()), 1.0)
+        engineered: dict[str, pd.Series | np.ndarray] = {
+            "fail_within_horizon": (group["time_to_failure"] <= horizon).astype(int),
+            "cycle_ratio": group["age"] / max(float(group["age"].max()), 1.0),
+        }
 
         for sensor in sensor_cols:
             for window in windows:
-                group[f"{sensor}_mean_{window}"] = group[sensor].rolling(window, min_periods=1).mean()
-                group[f"{sensor}_std_{window}"] = (
-                    group[sensor].rolling(window, min_periods=1).std().fillna(0.0)
-                )
-                group[f"{sensor}_slope_{window}"] = (
+                rolling = group[sensor].rolling(window, min_periods=1)
+                engineered[f"{sensor}_mean_{window}"] = rolling.mean()
+                engineered[f"{sensor}_std_{window}"] = rolling.std().fillna(0.0)
+                engineered[f"{sensor}_slope_{window}"] = (
                     group[sensor].rolling(window, min_periods=2).apply(_rolling_slope, raw=True).fillna(0.0)
                 )
 
             for lag in lags:
-                group[f"{sensor}_lag_{lag}"] = group[sensor].shift(lag).bfill()
+                engineered[f"{sensor}_lag_{lag}"] = group[sensor].shift(lag).bfill()
 
-            group[f"{sensor}_diff_1"] = group[sensor].diff().fillna(0.0)
-            group[f"{sensor}_diff_2"] = group[sensor].diff(2).fillna(0.0)
-            group[f"{sensor}_ewm_04"] = group[sensor].ewm(alpha=0.4, adjust=False).mean()
-            group[f"{sensor}_ewm_resid"] = group[sensor] - group[f"{sensor}_ewm_04"]
+            engineered[f"{sensor}_diff_1"] = group[sensor].diff().fillna(0.0)
+            engineered[f"{sensor}_diff_2"] = group[sensor].diff(2).fillna(0.0)
+            engineered[f"{sensor}_ewm_04"] = group[sensor].ewm(alpha=0.4, adjust=False).mean()
+            engineered[f"{sensor}_ewm_resid"] = group[sensor] - engineered[f"{sensor}_ewm_04"]
 
         for setting in setting_cols:
-            group[f"{setting}_demeaned"] = group[setting] - group[setting].mean()
+            engineered[f"{setting}_demeaned"] = group[setting] - group[setting].mean()
 
         level, trend = _holt_features(group[primary_sensor].to_numpy())
-        group["holt_level"] = level
-        group["holt_trend"] = trend
-        group["primary_sensor_resid"] = group[primary_sensor] - group["holt_level"]
-        group["mean_sensor_level_5"] = group[[f"{sensor}_mean_{windows[0]}" for sensor in sensor_cols]].mean(axis=1)
-        group["mean_sensor_level_30"] = group[[f"{sensor}_mean_{windows[-1]}" for sensor in sensor_cols]].mean(axis=1)
-        group["sensor_stress_gap"] = group["mean_sensor_level_5"] - group["mean_sensor_level_30"]
-        group["primary_sensor_acceleration"] = (
-            group[f"{primary_sensor}_slope_{windows[0]}"] - group[f"{primary_sensor}_slope_{windows[-1]}"]
+        engineered["holt_level"] = level
+        engineered["holt_trend"] = trend
+        engineered["primary_sensor_resid"] = group[primary_sensor] - engineered["holt_level"]
+        engineered["mean_sensor_level_5"] = pd.DataFrame(
+            {sensor: engineered[f"{sensor}_mean_{windows[0]}"] for sensor in sensor_cols}
+        ).mean(axis=1)
+        engineered["mean_sensor_level_30"] = pd.DataFrame(
+            {sensor: engineered[f"{sensor}_mean_{windows[-1]}"] for sensor in sensor_cols}
+        ).mean(axis=1)
+        engineered["sensor_stress_gap"] = engineered["mean_sensor_level_5"] - engineered["mean_sensor_level_30"]
+        engineered["primary_sensor_acceleration"] = (
+            engineered[f"{primary_sensor}_slope_{windows[0]}"] - engineered[f"{primary_sensor}_slope_{windows[-1]}"]
         )
+        group = pd.concat([group, pd.DataFrame(engineered, index=group.index)], axis=1)
         frames.append(group)
     return pd.concat(frames, ignore_index=True)
 
